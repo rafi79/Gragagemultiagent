@@ -9,12 +9,11 @@ import re
 import plotly.express as px
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
-import time
 
 class GarageSearchEngine:
-    def __init__(self, csv_path: str):
-        """Initialize the search engine with data preparation"""
-        self.df = pd.read_csv(csv_path)
+    def __init__(self, df):
+        """Initialize the search engine with DataFrame"""
+        self.df = df
         self.prepare_data()
         
     def prepare_data(self):
@@ -32,12 +31,6 @@ class GarageSearchEngine:
         )
         self.tfidf_matrix = self.tfidf.fit_transform(self.df['search_text'])
         
-        # Extract postcode areas
-        self.df['postcode_area'] = self.df['Postcode'].str.extract(
-            r'([A-Z]{1,2}\d{1,2})', 
-            flags=re.IGNORECASE
-        )
-
     def search(self, query: str, search_type: str, threshold: float = 0.1):
         """Unified search method"""
         if search_type == 'name':
@@ -147,107 +140,116 @@ def main():
     st.title("🚗 UK Garage Finder")
     st.markdown("---")
     
-    # Initialize search engine
-    try:
-        search_engine = GarageSearchEngine('Garage in UK  Sheet1.csv')
-    except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
-        return
-    
-    # Sidebar
+    # Sidebar - File Upload
     with st.sidebar:
-        st.header("Search Options")
-        search_type = st.selectbox(
-            "Search Type",
-            ["Comprehensive", "By Name", "By Location", "Find Nearby"],
-            key="search_type"
-        )
+        st.header("Upload Data")
+        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
         
-        search_query = st.text_input(
-            "Search Query",
-            placeholder="Enter garage name, location, or postcode..."
-        )
-        
-        if search_type == "By Name":
-            threshold = st.slider(
-                "Similarity Threshold",
-                0.0, 1.0, 0.1, 0.05,
-                help="Adjust how closely results should match your search"
-            )
-        
-        search_button = st.button("🔍 Search")
-        
-        st.markdown("---")
-        st.markdown("### Tips")
-        st.markdown("""
-        - For name search: Enter full or partial garage name
-        - For location: Enter city, area, or postcode
-        - For nearby: Enter a postcode to find garages in the area
-        """)
-    
-    # Main content
-    if search_button and search_query:
-        with st.spinner("Searching..."):
-            # Convert search type to backend format
-            search_type_map = {
-                "Comprehensive": "all",
-                "By Name": "name",
-                "By Location": "location",
-                "Find Nearby": "nearby"
-            }
-            
-            # Perform search
-            results = search_engine.search(
-                search_query,
-                search_type_map[search_type],
-                threshold if search_type == "By Name" else 0.1
-            )
-            
-            if len(results) > 0:
-                # Create two columns
-                col1, col2 = st.columns([2, 1])
+        if uploaded_file is not None:
+            try:
+                df = pd.read_csv(uploaded_file)
+                st.success("File uploaded successfully!")
                 
-                with col1:
-                    st.subheader(f"Found {len(results)} matching garages")
-                    
-                    # Display results in cards
-                    for _, garage in results.iterrows():
-                        with st.container():
-                            st.markdown(f"""
-                            <div class="garage-card">
-                                <h3>{garage['Garage Name']}</h3>
-                                <p>📍 {garage['Location']}, {garage['City']}, {garage['Postcode']}</p>
-                                <p>📞 {garage['Phone']}</p>
-                                <p>📧 {garage['Email']}</p>
-                                {"<p>🌐 " + f"<a href='{garage['Website']}' target='_blank'>{garage['Website']}</a></p>" if garage['Website'] != 'No Website' else ""}
-                            </div>
-                            """, unsafe_allow_html=True)
+                # Initialize search engine with uploaded data
+                search_engine = GarageSearchEngine(df)
                 
-                with col2:
-                    st.subheader("📍 Map View")
-                    # Create and display map
-                    if len(results) > 0:
-                        sample_address = f"{results.iloc[0]['City']}, UK"
-                        coords = get_coordinates(sample_address)
-                        if coords:
-                            m = create_map(results[:10], coords[0], coords[1])
-                            folium_static(m)
-                
-                # Analytics
-                st.markdown("---")
-                st.subheader("📊 Analytics")
-                
-                # City distribution
-                city_dist = results['City'].value_counts()
-                fig = px.pie(
-                    values=city_dist.values,
-                    names=city_dist.index,
-                    title="Distribution by City"
+                st.header("Search Options")
+                search_type = st.selectbox(
+                    "Search Type",
+                    ["Comprehensive", "By Name", "By Location", "Find Nearby"],
+                    key="search_type"
                 )
-                st.plotly_chart(fig)
                 
-            else:
-                st.warning("No garages found matching your search criteria.")
+                search_query = st.text_input(
+                    "Search Query",
+                    placeholder="Enter garage name, location, or postcode..."
+                )
+                
+                if search_type == "By Name":
+                    threshold = st.slider(
+                        "Similarity Threshold",
+                        0.0, 1.0, 0.1, 0.05,
+                        help="Adjust how closely results should match your search"
+                    )
+                
+                search_button = st.button("🔍 Search")
+                
+                st.markdown("---")
+                st.markdown("### Tips")
+                st.markdown("""
+                - For name search: Enter full or partial garage name
+                - For location: Enter city, area, or postcode
+                - For nearby: Enter a postcode to find garages in the area
+                """)
+                
+                # Main content
+                if search_button and search_query:
+                    with st.spinner("Searching..."):
+                        # Convert search type to backend format
+                        search_type_map = {
+                            "Comprehensive": "all",
+                            "By Name": "name",
+                            "By Location": "location",
+                            "Find Nearby": "nearby"
+                        }
+                        
+                        # Perform search
+                        results = search_engine.search(
+                            search_query,
+                            search_type_map[search_type],
+                            threshold if search_type == "By Name" else 0.1
+                        )
+                        
+                        if len(results) > 0:
+                            # Create two columns
+                            col1, col2 = st.columns([2, 1])
+                            
+                            with col1:
+                                st.subheader(f"Found {len(results)} matching garages")
+                                
+                                # Display results in cards
+                                for _, garage in results.iterrows():
+                                    with st.container():
+                                        st.markdown(f"""
+                                        <div class="garage-card">
+                                            <h3>{garage['Garage Name']}</h3>
+                                            <p>📍 {garage['Location']}, {garage['City']}, {garage['Postcode']}</p>
+                                            <p>📞 {garage['Phone']}</p>
+                                            <p>📧 {garage['Email']}</p>
+                                            {"<p>🌐 " + f"<a href='{garage['Website']}' target='_blank'>{garage['Website']}</a></p>" if garage['Website'] != 'No Website' else ""}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                            
+                            with col2:
+                                st.subheader("📍 Map View")
+                                # Create and display map
+                                if len(results) > 0:
+                                    sample_address = f"{results.iloc[0]['City']}, UK"
+                                    coords = get_coordinates(sample_address)
+                                    if coords:
+                                        m = create_map(results[:10], coords[0], coords[1])
+                                        folium_static(m)
+                            
+                            # Analytics
+                            st.markdown("---")
+                            st.subheader("📊 Analytics")
+                            
+                            # City distribution
+                            city_dist = results['City'].value_counts()
+                            fig = px.pie(
+                                values=city_dist.values,
+                                names=city_dist.index,
+                                title="Distribution by City"
+                            )
+                            st.plotly_chart(fig)
+                            
+                        else:
+                            st.warning("No garages found matching your search criteria.")
+            
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+        else:
+            st.info("Please upload a CSV file to begin searching.")
 
 if __name__ == "__main__":
     main()
